@@ -1,18 +1,21 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import yfinance as yf
+from finta import TA
 import math
 from pathlib import Path
+
+pg = st.navigation([
+    st.Page("streamlit_app.py", title="My Portfolio", icon="📈"),
+    st.Page("pages/add_new_stock.py", title="Add New Stock", icon="➕"),
+])
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
     page_title='My Portfolio',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.,
+    page_icon=':chart_with_upwards_trend:', # This is an emoji shortcode. Could be a URL too.,
 )
-
-pg = st.navigation([
-    st.Page("streamlit_app.py", title="First page", icon="🔥"),
-    st.Page("add_new_stock.py", title="Second page", icon=":material/favorite:"),
-])
 
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
