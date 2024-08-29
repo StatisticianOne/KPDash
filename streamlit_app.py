@@ -5,6 +5,7 @@ import yfinance as yf
 from finta import TA
 import math
 from pathlib import Path
+from datetime import date
 
 pg = st.navigation([
     st.Page("streamlit_app.py", title="My Portfolio", icon="📈"),
@@ -18,7 +19,204 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
+# Draw the actual page
+
+# Set the title that appears at the top of the page.
+f'''
+# 📈 Welcome! 
+
+#### Here are your portfolio insights as of {pd.to_datetime(date.today()).strftime('%d %B %Y')}.
+NOTE: Live market data might not be available during trading hours, expect (day-1) data instead.
+'''
+
+# Add some spacing
+''
+''
+# -----------------------------------------------------------------------------
 # Declare some useful functions.
+
+@st.cache_data
+def get_portfolio():
+
+    today = pd.to_datetime(date.today())
+    DATA_FILENAME = Path(__file__).parent/'data/S&P 30-day Portfolio (NN v1.1).csv'
+    P_meta = pd.read_csv(DATA_FILENAME)
+    P_meta['Shares'] = 2
+
+    all_stock_df = []
+    for _, row in P_meta.iterrows():
+        
+        end_date = today if today <= pd.to_datetime(row['Expected Sell Date']) else pd.to_datetime(row['Expected Sell Date'])
+        stock_df = yf.Ticker(row['Ticker']).history(start=pd.to_datetime(row['Buy Date']), end=end_date)
+        stock_df['Ticker'] = '_'.join([row['Ticker'], row['Buy Date']])
+        stock_df['Returns'] = ((stock_df['Close'].pct_change() + 1).cumprod() - 1)*100
+        stock_df['Shares'] = 2
+        stock_df['MV'] = stock_df['Shares'] * stock_df['Close']
+        stock_df = stock_df.reset_index()
+        stock_df['Date'] = stock_df['Date'].apply(lambda x: date(x.year, x.month, x.day))
+        all_stock_df.append(stock_df)
+
+    P = pd.concat(all_stock_df)
+
+    return P, P_meta
+
+P, P_meta = get_portfolio()
+
+st.header('Overview', divider='gray')
+
+cols = st.columns(2)
+
+with cols[0]:
+    total_in = (P_meta['Buy Price']*P_meta['Shares']).sum()
+    latest_data = P.groupby('Ticker').last().sort_values('Ticker')
+    current_value = (latest_data.Close * latest_data.Shares).sum()
+    returns = (current_value / total_in - 1)*100
+
+    st.metric(
+            label='Current Portfolio Value',
+            value=f'${current_value:.2f}',
+            delta=f'{returns:.2f}%',
+            delta_color='normal'
+        )
+
+with cols[1]:
+    total_in = (P_meta['Buy Price']*P_meta['Shares']).sum()
+    latest_data = P.groupby('Ticker').last()
+    current_value = (latest_data.Close * latest_data.Shares).sum()
+    returns = (current_value / total_in - 1)*100
+
+    st.metric(
+            label='Daily PnL',
+            value=f'${current_value:.2f}',
+            delta=f'{returns:.2f}%',
+            delta_color='normal'
+        )
+
+
+''
+''
+''
+st.header('Drill Down', divider='gray')
+
+# -------------- STOCK FILTER -------------- #
+
+container = st.container()
+all = st.checkbox("Select all")
+ 
+if all:
+    selected_stocks = container.multiselect(
+        'Which stocks would you like to view?',
+        sorted(P.Ticker.unique()),
+        sorted(P.Ticker.unique())
+    )
+else:
+    selected_stocks = container.multiselect(
+        'Which stocks would you like to view?',
+        sorted(P.Ticker.unique()),
+        sorted(P.Ticker.unique())[0]
+    )
+
+if len(selected_stocks) != 0:
+
+    filtered_stocks_P = P[P.Ticker.isin(selected_stocks)]
+
+    # -------------- DATE FILTER -------------- #
+    min_value = filtered_stocks_P['Date'].min()
+    max_value = filtered_stocks_P['Date'].max()
+    from_date, to_date = st.slider(
+        'Which date range are you interested in?',
+        min_value=min_value,
+        max_value=max_value,
+        value=[min_value, max_value])
+    filtered_date_P = filtered_stocks_P[(filtered_stocks_P.Date >= from_date) & (filtered_stocks_P.Date <= to_date)]
+
+    # -------------- FORMATTING -------------- #
+    plot_P = filtered_date_P.copy()
+    plot_P.Date = plot_P.Date.apply(lambda x: str(x))
+
+    # -------------- PRICE PLOT -------------- #
+    st.line_chart(
+        plot_P,
+        x='Date',
+        y='Close',
+        color='Ticker',
+    )
+
+    # -------------- CUMU. RETURNS PLOT -------------- #
+    st.line_chart(
+        plot_P,
+        x='Date',
+        y='Returns',
+        color='Ticker',
+    )
+
+    st.header('Current Market Value', divider='gray')
+
+    cols = st.columns(5)
+
+    for i, ticker in enumerate(selected_stocks):
+        col = cols[i % len(cols)]
+
+        with col:
+            td_returns = round(filtered_stocks_P[filtered_stocks_P.Ticker == ticker].iloc[-1].Returns,2)
+            current_value = filtered_stocks_P[filtered_stocks_P.Ticker == ticker].iloc[-1]['MV']
+
+            st.metric(
+                label=f'{ticker}',
+                value=f'${current_value:.2f}',
+                delta=f'{td_returns:.2f}%',
+                delta_color='normal'
+            )
+
+    st.header('Daily PnL', divider='gray')
+
+    cols = st.columns(5)
+
+    for i, ticker in enumerate(selected_stocks):
+        col = cols[i % len(cols)]
+
+        with col:
+            prev_value = filtered_stocks_P[filtered_stocks_P.Ticker == ticker].iloc[-2]['MV']
+            current_value = filtered_stocks_P[filtered_stocks_P.Ticker == ticker].iloc[-1]['MV']
+            daily_delta = current_value - prev_value
+            daily_ret = (current_value/prev_value - 1)*100
+
+            st.metric(
+                label=f'{ticker}',
+                value=f'${daily_delta:.2f}',
+                delta=f'{daily_ret:.2f}%',
+                delta_color='normal'
+            )
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+""
+""
+""
+""
+
+
+
 
 @st.cache_data
 def get_gdp_data():
@@ -67,21 +265,7 @@ def get_gdp_data():
 
 gdp_df = get_gdp_data()
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
 
 min_value = gdp_df['Year'].min()
 max_value = gdp_df['Year'].max()
