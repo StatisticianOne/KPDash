@@ -5,9 +5,14 @@ from pathlib import Path
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title='My Portfolio',
+    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.,
 )
+
+pg = st.navigation([
+    st.Page("streamlit_app.py", title="First page", icon="🔥"),
+    st.Page("add_new_stock.py", title="Second page", icon=":material/favorite:"),
+])
 
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
