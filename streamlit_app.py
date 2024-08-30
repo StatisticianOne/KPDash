@@ -10,7 +10,7 @@ import altair as alt
 
 pg = st.navigation([
     st.Page("streamlit_app.py", title="My Portfolio", icon="📈"),
-    st.Page("pages/add_new_stock.py", title="Add New Stock", icon="➕"),
+    st.Page("pages/add_new_stock.py", title="Add New Stock", icon="➕")
 ])
 
 # Set the title and favicon that appear in the Browser's tab bar.
