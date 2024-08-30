@@ -6,6 +6,7 @@ from finta import TA
 import math
 from pathlib import Path
 from datetime import date
+import altair as alt
 
 pg = st.navigation([
     st.Page("streamlit_app.py", title="My Portfolio", icon="📈"),
@@ -16,8 +17,8 @@ pg = st.navigation([
 st.set_page_config(
     page_title='My Portfolio',
     page_icon=':chart_with_upwards_trend:', # This is an emoji shortcode. Could be a URL too.,
+    # layout='wide'
 )
-
 # -----------------------------------------------------------------------------
 # Draw the actual page
 
@@ -26,7 +27,8 @@ f'''
 # 📈 Welcome! 
 
 #### Here are your portfolio insights as of {pd.to_datetime(date.today()).strftime('%d %B %Y')}.
-NOTE: Live market data might not be available during trading hours, expect (day-1) data instead.
+* Live market data might not be available during trading hours, expect (day-1) data instead.
+* Tickers with * denotes positions that have been closed.
 '''
 
 # Add some spacing
@@ -35,7 +37,7 @@ NOTE: Live market data might not be available during trading hours, expect (day-
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def get_portfolio():
 
     today = pd.to_datetime(date.today())
@@ -45,56 +47,197 @@ def get_portfolio():
     all_stock_df = []
     for _, row in P_meta.iterrows():
         
-        end_date = today if row['Closed'] else pd.to_datetime(row['Close Date'])
+        end_date = today if not row['Closed'] else pd.to_datetime(row['Close Date'])
         stock_df = yf.Ticker(row['Ticker']).history(start=pd.to_datetime(row['Buy Date']), end=end_date)
         stock_df['Ticker'] = '_'.join([row['Ticker'], row['Buy Date']])
-        stock_df['Returns'] = ((stock_df['Close'].pct_change() + 1).cumprod() - 1)*100
-        stock_df['Shares'] = 2
-        stock_df['MV'] = stock_df['Shares'] * stock_df['Close']
+        stock_df['Returns'] = (stock_df['Close'] / row['Buy Price'] - 1)*100
+        stock_df['MV'] = row['Shares'] * stock_df['Close']
         stock_df = stock_df.reset_index()
         stock_df['Date'] = stock_df['Date'].apply(lambda x: date(x.year, x.month, x.day))
         all_stock_df.append(stock_df)
 
     P = pd.concat(all_stock_df)
+    
+    realized_keys = P_meta[P_meta.Closed == True]['dual_key'].to_list()
+    P_realized = P[P.Ticker.isin(realized_keys)].sort_values(['Ticker', 'Date'])
+    P_unrealized = P[~P.Ticker.isin(realized_keys)].sort_values(['Ticker', 'Date'])
 
-    return P, P_meta
+    P = pd.concat([P_realized, P_unrealized])
 
-P, P_meta = get_portfolio()
+    return P_meta, P_realized, P_unrealized, P
 
+P_meta, P_realized, P_unrealized, P = get_portfolio()
+
+#################################################################################################################
+st.header('Daily PnL', divider='gray')
+
+pnl = P_unrealized.groupby('Ticker').agg({
+    'Returns': lambda x: ((x.iloc[-1]/100+1) / (x.iloc[-2]/100+1) - 1)*100,
+    'MV': lambda x: (x.iloc[-1] - x.iloc[-2])/1000
+}).rename(columns={'Returns':'Daily Return [%]', 'MV':'Daily PnL [K]'})
+
+cols = st.columns(1)
+with cols[0]:
+    value = pnl['Daily PnL [K]'].sum()
+    prev_mv = P_unrealized.groupby('Ticker').apply(lambda x: x.iloc[-2])['MV'].sum()
+    current_mv = P_unrealized.groupby('Ticker').last()['MV'].sum()
+    delta = (current_mv / prev_mv - 1)*100
+
+    st.metric(
+                label=f'Portfolio\'s 1-day Change',
+                value=f'${value:.2f}K',
+                delta=f'{delta:.2f}%',
+                delta_color='normal'
+            )
+''
+pnl = pnl.style.map(lambda x: f"color: {'green' if x>=0 else 'red'}", subset=['Daily Return [%]', 'Daily PnL [K]'])\
+    .format(precision=3)
+st.dataframe(pnl, width=500)
+
+''
+''
+''
+#################################################################################################################
+
+#################################################################################################################
 st.header('Overview', divider='gray')
 
-cols = st.columns(2)
+cols = st.columns(3)
 
+# Realized + Unrealized Portfolio
 with cols[0]:
     total_in = (P_meta['Buy Price']*P_meta['Shares']).sum()
     latest_data = P.groupby('Ticker').last().sort_values('Ticker')
-    current_value = (latest_data.Close * latest_data.Shares).sum()
-    returns = (current_value / total_in - 1)*100
+    value = latest_data.MV.sum()
+    mv_delta = (value - total_in)
+    returns = (value / total_in - 1)*100
+    delta_color = 'normal'
 
     st.metric(
-            label='Current Portfolio Value',
-            value=f'${current_value:.2f}',
-            delta=f'{returns:.2f}%',
-            delta_color='normal'
+            label='Combined Portfolio',
+            value=f'${value/1000:.2f}K',
+            delta=f'{mv_delta/1000:.2f}K | {returns:.2f}%',
+            delta_color=delta_color
         )
 
+# Unrealized Portfolio
 with cols[1]:
-    total_in = (P_meta['Buy Price']*P_meta['Shares']).sum()
-    latest_data = P.groupby('Ticker').last()
-    current_value = (latest_data.Close * latest_data.Shares).sum()
-    returns = (current_value / total_in - 1)*100
+    keys = P_unrealized.Ticker.unique()
+    P_unrealized_meta = P_meta[P_meta.dual_key.isin(keys)]
+
+    total_in = (P_unrealized_meta['Buy Price']*P_unrealized_meta['Shares']).sum()
+    latest_data = P_unrealized.groupby('Ticker').last().sort_values('Ticker')
+    value = latest_data.MV.sum()
+    mv_delta = (value - total_in)
+    returns = (value / total_in - 1)*100
+    delta_color = 'normal'
 
     st.metric(
-            label='Daily PnL',
-            value=f'${current_value:.2f}',
-            delta=f'{returns:.2f}%',
-            delta_color='normal'
+            label='Unrealized Portfolio',
+            value=f'${value/1000:.2f}K',
+            delta=f'{mv_delta/1000:.2f}K | {returns:.2f}%',
+            delta_color=delta_color
         )
 
+# Realized Portfolio
+with cols[2]:
+    if P_realized.empty:
+        value = 0
+        mv_delta = 0
+        returns = 0
+        delta_color = 'off'
+    else:
+        keys = P_realized.Ticker.unique()
+        P_realized_meta = P_meta[P_meta.dual_key.isin(keys)]
+
+        total_in = (P_realized_meta['Buy Price']*P_realized_meta['Shares']).sum()
+        latest_data = P_realized.groupby('Ticker').last().sort_values('Ticker')
+        value = latest_data.MV.sum()
+        mv_delta = (value - total_in)
+        returns = (value / total_in - 1)*100
+        delta_color = 'normal'
+
+    st.metric(
+            label='Realized Portfolio',
+            value=f'${value/1000:.2f}K',
+            delta=f'{mv_delta/1000:.2f}K | {returns:.2f}%',
+            delta_color=delta_color
+        )
+
+returns_df = P.groupby('Ticker').last()[['Returns', 'MV']]
+# st.table(returns_df)
+gainers_df = returns_df[returns_df.Returns > 0].sort_values('Returns', ascending=False).head().reset_index()
+losers_df = returns_df[returns_df.Returns < 0].sort_values('Returns').head().reset_index()
+''
+''
+
+'### Biggest Gainers (by %)'
+cols = st.columns(5)
+for i, row in gainers_df.iterrows():
+    with cols[i]:
+        key = row.Ticker
+        total_in = (P_meta[P_meta.dual_key == key]['Buy Price'] * P_meta[P_meta.dual_key == key]['Shares']).iloc[0]
+        print(key, total_in)
+        value = row['MV']
+        mv_delta = (value - total_in)
+        returns = row['Returns']
+        delta_color = 'normal'
+
+        st.metric(
+                label=f'{key}',
+                value=f'${mv_delta/1000:.2f}K',
+                delta=f'{returns:.2f}%',
+                delta_color=delta_color
+            )
 
 ''
 ''
+
+'### Biggest Losers (by %)'
+cols = st.columns(5)
+for i, row in losers_df.iterrows():
+    with cols[i]:
+        key = row.Ticker
+        total_in = (P_meta[P_meta.dual_key == key]['Buy Price'] * P_meta[P_meta.dual_key == key]['Shares']).iloc[0]
+        value = row['MV']
+        mv_delta = (value - total_in)
+        returns = row['Returns']
+        delta_color = 'normal'
+
+        st.metric(
+                label=f'{key}',
+                value=f'${mv_delta/1000:.2f}K',
+                delta=f'{returns:.2f}%',
+                delta_color=delta_color
+            )
+
 ''
+''
+'### Portfolio Value Growth'
+min_value = P['Date'].min()
+max_value = P['Date'].max()
+from_date, to_date = st.slider(
+    'Which date range are you interested in?',
+    min_value=min_value,
+    max_value=max_value,
+    value=[min_value, max_value])
+
+P_growth = P.groupby('Date').agg({'MV':'sum'}).apply(lambda x: x/1000).loc[from_date:to_date].reset_index()
+P_growth.Date = P_growth.Date.apply(lambda x: str(x))
+
+c = (
+   alt.Chart(P_growth)
+   .mark_line()
+   .encode(x="Date", y=alt.Y("MV:Q", scale=alt.Scale(zero=False)))
+)
+
+st.altair_chart(c, use_container_width=True)
+''
+''
+''
+#################################################################################################################
+
+#################################################################################################################
 st.header('Drill Down', divider='gray')
 
 # -------------- STOCK FILTER -------------- #
@@ -126,7 +269,8 @@ if len(selected_stocks) != 0:
         'Which date range are you interested in?',
         min_value=min_value,
         max_value=max_value,
-        value=[min_value, max_value])
+        value=[min_value, max_value],
+        key='drill_down')
     filtered_date_P = filtered_stocks_P[(filtered_stocks_P.Date >= from_date) & (filtered_stocks_P.Date <= to_date)]
 
     # -------------- FORMATTING -------------- #
@@ -134,23 +278,37 @@ if len(selected_stocks) != 0:
     plot_P.Date = plot_P.Date.apply(lambda x: str(x))
 
     # -------------- PRICE PLOT -------------- #
-    st.line_chart(
-        plot_P,
-        x='Date',
-        y='Close',
-        color='Ticker',
+    # st.line_chart(
+    #     plot_P,
+    #     x='Date',
+    #     y='Close',
+    #     color='Ticker',
+    # )
+
+    c = (
+        alt.Chart(plot_P)
+        .mark_line()
+        .encode(x="Date", y=alt.Y("Close:Q", scale=alt.Scale(zero=False)), color="Ticker")
     )
+    st.altair_chart(c, use_container_width=True)
 
     # -------------- CUMU. RETURNS PLOT -------------- #
-    st.line_chart(
-        plot_P,
-        x='Date',
-        y='Returns',
-        color='Ticker',
+    # st.line_chart(
+    #     plot_P,
+    #     x='Date',
+    #     y='Returns',
+    #     color='Ticker',
+    # )
+    c = (
+        alt.Chart(plot_P)
+        .mark_line()
+        .encode(x="Date", y=alt.Y("Returns:Q", scale=alt.Scale(zero=False)), color="Ticker")
     )
+    st.altair_chart(c, use_container_width=True)
 
-    st.header('Current Market Value', divider='gray')
-
+    '### Stock Market Value and % Growth'
+    ''
+    ''
     cols = st.columns(5)
 
     for i, ticker in enumerate(selected_stocks):
@@ -162,181 +320,7 @@ if len(selected_stocks) != 0:
 
             st.metric(
                 label=f'{ticker}',
-                value=f'${current_value:.2f}',
+                value=f'${current_value/1000:.2f}K',
                 delta=f'{td_returns:.2f}%',
                 delta_color='normal'
             )
-
-    st.header('Daily PnL', divider='gray')
-
-    cols = st.columns(5)
-
-    for i, ticker in enumerate(selected_stocks):
-        col = cols[i % len(cols)]
-
-        with col:
-            prev_value = filtered_stocks_P[filtered_stocks_P.Ticker == ticker].iloc[-2]['MV']
-            current_value = filtered_stocks_P[filtered_stocks_P.Ticker == ticker].iloc[-1]['MV']
-            daily_delta = current_value - prev_value
-            daily_ret = (current_value/prev_value - 1)*100
-
-            st.metric(
-                label=f'{ticker}',
-                value=f'${daily_delta:.2f}',
-                delta=f'{daily_ret:.2f}%',
-                delta_color='normal'
-            )
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-""
-""
-""
-""
-
-
-
-
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
-
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
-
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
-
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
