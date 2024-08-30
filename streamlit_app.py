@@ -41,12 +41,11 @@ def get_portfolio():
     today = pd.to_datetime(date.today())
     DATA_FILENAME = Path(__file__).parent/'data/S&P 30-day Portfolio (NN v1.1).csv'
     P_meta = pd.read_csv(DATA_FILENAME)
-    P_meta['Shares'] = 2
 
     all_stock_df = []
     for _, row in P_meta.iterrows():
         
-        end_date = today if today <= pd.to_datetime(row['Expected Sell Date']) else pd.to_datetime(row['Expected Sell Date'])
+        end_date = today if row['Closed'] else pd.to_datetime(row['Close Date'])
         stock_df = yf.Ticker(row['Ticker']).history(start=pd.to_datetime(row['Buy Date']), end=end_date)
         stock_df['Ticker'] = '_'.join([row['Ticker'], row['Buy Date']])
         stock_df['Returns'] = ((stock_df['Close'].pct_change() + 1).cumprod() - 1)*100
