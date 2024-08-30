@@ -85,7 +85,7 @@ with cols[0]:
 
     st.metric(
                 label=f'Portfolio\'s 1-day Change',
-                value=f'${value:.2f}K',
+                value=f'${value:.3f}K',
                 delta=f'{delta:.2f}%',
                 delta_color='normal'
             )
@@ -177,7 +177,6 @@ for i, row in gainers_df.iterrows():
     with cols[i]:
         key = row.Ticker
         total_in = (P_meta[P_meta.dual_key == key]['Buy Price'] * P_meta[P_meta.dual_key == key]['Shares']).iloc[0]
-        print(key, total_in)
         value = row['MV']
         mv_delta = (value - total_in)
         returns = row['Returns']
@@ -228,7 +227,7 @@ P_growth.Date = P_growth.Date.apply(lambda x: str(x))
 c = (
    alt.Chart(P_growth)
    .mark_line()
-   .encode(x="Date", y=alt.Y("MV:Q", scale=alt.Scale(zero=False)))
+   .encode(x="Date", y=alt.Y("MV:Q", scale=alt.Scale(zero=False), title='Portfolio Market Value [K]'))
 )
 
 st.altair_chart(c, use_container_width=True)
@@ -307,7 +306,6 @@ if len(selected_stocks) != 0:
     st.altair_chart(c, use_container_width=True)
 
     '### Stock Market Value and % Growth'
-    ''
     ''
     cols = st.columns(5)
 
