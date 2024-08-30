@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from finta import TA
-import math
 from pathlib import Path
 from datetime import date
 import altair as alt
