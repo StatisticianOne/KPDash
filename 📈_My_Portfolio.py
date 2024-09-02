@@ -6,11 +6,7 @@ from finta import TA
 from pathlib import Path
 from datetime import date
 import altair as alt
-
-# pg = st.navigation([
-#     st.Page("streamlit_app.py", title="My Portfolio", icon="📈"),
-#     st.Page("pages/add_new_stock.py", title="Add New Stock", icon="➕")
-# ])
+from streamlit_gsheets import GSheetsConnection
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
@@ -29,25 +25,22 @@ f'''
 * Live market data might not be available during trading hours, expect (day-1) data instead.
 * Tickers with * denotes positions that have been closed.
 '''
-
-# Add some spacing
 ''
 ''
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
 
 @st.cache_data(ttl=3600)
 def get_portfolio():
 
     today = pd.to_datetime(date.today())
-    DATA_FILENAME = Path(__file__).parent/'data/S&P 30-day Portfolio (NN v1.1).csv'
-    P_meta = pd.read_csv(DATA_FILENAME)
-
+    # DATA_FILENAME = Path(__file__).parent/'data/S&P 30-day Portfolio (NN v1.1).csv'
+    # P_meta = pd.read_csv(DATA_FILENAME)
+    conn = st.connection("portfolio", type=GSheetsConnection)
+    P_meta = conn.read()
     all_stock_df = []
     for _, row in P_meta.iterrows():
         
         end_date = today if not row['Closed'] else pd.to_datetime(row['Close Date'])
-        stock_df = yf.Ticker(row['Ticker']).history(start=pd.to_datetime(row['Buy Date']), end=end_date)
+        stock_df = yf.Ticker(row['Ticker']).history(start=pd.to_datetime(row['Buy Date']).strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
         stock_df['Ticker'] = '_'.join([row['Ticker'], row['Buy Date']])
         stock_df['Returns'] = (stock_df['Close'] / row['Buy Price'] - 1)*100
         stock_df['MV'] = row['Shares'] * stock_df['Close']
@@ -89,6 +82,7 @@ with cols[0]:
                 delta_color='normal'
             )
 ''
+pnl = pnl.sort_values('Daily PnL [K]', ascending=False)
 pnl = pnl.style.map(lambda x: f"color: {'green' if x>=0 else 'red'}", subset=['Daily Return [%]', 'Daily PnL [K]'])\
     .format(precision=3)
 st.dataframe(pnl, width=500)
