@@ -11,6 +11,7 @@ st.set_page_config(page_title="Add New Stock", page_icon="➕")
 
 f'''
 # ➕Add New Stocks 
+* Only supports SG stocks for now
 '''
 
 st.cache_data.clear()

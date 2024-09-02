@@ -298,7 +298,7 @@ if len(selected_stocks) != 0:
     )
     st.altair_chart(c, use_container_width=True)
 
-    '### Stock Market Value and % Growth'
+    '### Stocks\' Market Value and % Growth'
     ''
     cols = st.columns(5)
 
