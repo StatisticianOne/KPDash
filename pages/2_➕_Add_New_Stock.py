@@ -25,7 +25,7 @@ with st.form("my_form", clear_on_submit=True):
     ticker = st.text_input(label='Ticker', value=None)
 
     buy_date = st.date_input(label='Purchase Date', value=None)
-    shares = st.number_input(label='Shares Purchased', step=1, value=None)
+    shares = st.number_input(label='Number of Shares Purchased', step=1, value=None)
     buy_price = st.number_input(label='Purchase Price per Share', value=None)
 
     fields = {
@@ -39,12 +39,16 @@ with st.form("my_form", clear_on_submit=True):
     submitted = st.form_submit_button('Submit stock')
 
 if submitted:
-    if any([ticker is None, buy_date is None, shares is None, buy_price is None]):
+    if any([ticker is None, shares is None, buy_price is None]):
         st.error('ERROR: One or more fields were left empty, or not in the correct format!')
     else:
         ticker = str(ticker)
         if len(ticker.split(".")) == 1:
             ticker = ticker.upper() + ".SI"
+
+        if buy_date is None:
+            buy_date = date.today() - pd.Timedelta(days=1)
+            no_buy_date_flag = True
 
         if buy_date >= date.today():
             st.error(f'ERROR: Buy date must be before today (due to having no access to live data)! You selected: {buy_date}')
@@ -63,15 +67,20 @@ if submitted:
             if ticker_df.empty:
                 st.error(f'ERROR: Ticker can\'t be found! Ensure that you keyed in the correct symbol, or that the date is not a non-trading day (e.g. public holidays). You entered: {ticker.split(".")[0]}')
             else:
+
                 prices = ticker_df.iloc[0][['High', 'Low']]
-                if buy_price > prices.High:
-                    st.error(f'ERROR: Purchase price seems to be greater than the day\'s high price! You entered: {buy_price:.2f}, Day\'s High: {prices.High:.2f}')
-                elif buy_price < prices.Low:
-                    st.error(f'ERROR: Purchase price seems to be lower than the day\'s low price! You entered: {buy_price:.2f}, Day\'s Low: {prices.High:.2f}')
+                if (buy_price > prices.High) and (not no_buy_date_flag):
+                    st.error(f'ERROR: Purchase price seems to be greater than the day\'s high price! You entered: {buy_price:.3f}, Day\'s High: {prices.High:.3f}')
+                elif (buy_price < prices.Low) and (not no_buy_date_flag):
+                    st.error(f'ERROR: Purchase price seems to be lower than the day\'s low price! You entered: {buy_price:.3f}, Day\'s Low: {prices.High:.3f}')
                 else:           
                     success = True
                     P_meta = conn.read()
-                    dual_key = '_'.join([ticker, str(buy_date)])
+
+                    if no_buy_date_flag:
+                        dual_key = '_'.join([ticker, f'{shares}@${buy_price:.3f}'])
+                    else:
+                        dual_key = '_'.join([ticker, str(buy_date)])
 
                     if dual_key in P_meta.dual_key.unique():
 
@@ -94,3 +103,5 @@ if submitted:
 
                         st.cache_data.clear()
                         st.success('Stock successfully added to portfolio!')
+                
+                no_buy_date_flag = False

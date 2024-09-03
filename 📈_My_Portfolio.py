@@ -41,7 +41,7 @@ def get_portfolio():
         
         end_date = today if not row['Closed'] else pd.to_datetime(row['Close Date'])
         stock_df = yf.Ticker(row['Ticker']).history(start=pd.to_datetime(row['Buy Date']).strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
-        stock_df['Ticker'] = '_'.join([row['Ticker'], row['Buy Date']])
+        stock_df['Ticker'] = row['dual_key']
         stock_df = stock_df.reset_index()
         stock_df['Date'] = stock_df['Date'].apply(lambda x: date(x.year, x.month, x.day))
         stock_df['Returns'] = (stock_df['Close'] / row['Buy Price'] - 1)*100
@@ -52,7 +52,7 @@ def get_portfolio():
         if len(stock_df) == 1:
             fake_date = today-pd.Timedelta(days=2)
             fake_date = date(fake_date.year, fake_date.month, fake_date.day)
-            fake_row = pd.DataFrame([['_'.join([row['Ticker'], row['Buy Date']]), 0, row['Shares']*row['Buy Price'], fake_date, 1]], columns=['Ticker', 'Returns', 'MV', 'Date', 'pseudo'])
+            fake_row = pd.DataFrame([[row['dual_key'], 0, row['Shares']*row['Buy Price'], fake_date, 1]], columns=['Ticker', 'Returns', 'MV', 'Date', 'pseudo'])
             stock_df = pd.concat([stock_df, fake_row])
 
         all_stock_df.append(stock_df)
@@ -71,6 +71,7 @@ P_meta, P_realized, P_unrealized, P = get_portfolio()
 
 #################################################################################################################
 f'''
+---
 # Daily PnL
 * This segment shows the daily change in the market value of your positions from yesterday day.
 ---
@@ -107,6 +108,7 @@ st.dataframe(pnl, width=500)
 
 #################################################################################################################
 f'''
+---
 # Overview
 * This segment shows overall gains and\/ losses of your portfolio and individual stocks since the day you bought them, at the price you bought them.
 ---
@@ -270,6 +272,7 @@ st.altair_chart(c, use_container_width=True)
 
 #################################################################################################################
 f'''
+---
 # Drill Down
 * This segment allows you to view individual stock performances over time, to visualize how the stock price changed throughout your holding.
 ---
