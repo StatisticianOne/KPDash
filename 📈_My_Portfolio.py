@@ -42,10 +42,19 @@ def get_portfolio():
         end_date = today if not row['Closed'] else pd.to_datetime(row['Close Date'])
         stock_df = yf.Ticker(row['Ticker']).history(start=pd.to_datetime(row['Buy Date']).strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
         stock_df['Ticker'] = '_'.join([row['Ticker'], row['Buy Date']])
-        stock_df['Returns'] = (stock_df['Close'] / row['Buy Price'] - 1)*100
-        stock_df['MV'] = row['Shares'] * stock_df['Close']
         stock_df = stock_df.reset_index()
         stock_df['Date'] = stock_df['Date'].apply(lambda x: date(x.year, x.month, x.day))
+        stock_df['Returns'] = (stock_df['Close'] / row['Buy Price'] - 1)*100
+        stock_df['MV'] = row['Shares'] * stock_df['Close']
+        stock_df['pseudo'] = 0
+
+        # Create pseudo data if stock is bought just the day before
+        if len(stock_df) == 1:
+            fake_date = today-pd.Timedelta(days=2)
+            fake_date = date(fake_date.year, fake_date.month, fake_date.day)
+            fake_row = pd.DataFrame([['_'.join([row['Ticker'], row['Buy Date']]), 0, row['Shares']*row['Buy Price'], fake_date, 1]], columns=['Ticker', 'Returns', 'MV', 'Date', 'pseudo'])
+            stock_df = pd.concat([stock_df, fake_row])
+
         all_stock_df.append(stock_df)
 
     P = pd.concat(all_stock_df)
@@ -61,7 +70,11 @@ def get_portfolio():
 P_meta, P_realized, P_unrealized, P = get_portfolio()
 
 #################################################################################################################
-st.header('Daily PnL', divider='gray')
+f'''
+# Daily PnL
+* This segment shows the daily change in the market value of your positions from yesterday day.
+---
+'''
 
 pnl = P_unrealized.groupby('Ticker').agg({
     'Returns': lambda x: ((x.iloc[-1]/100+1) / (x.iloc[-2]/100+1) - 1)*100,
@@ -93,7 +106,11 @@ st.dataframe(pnl, width=500)
 #################################################################################################################
 
 #################################################################################################################
-st.header('Overview', divider='gray')
+f'''
+# Overview
+* This segment shows overall gains and\/ losses of your portfolio and individual stocks since the day you bought them, at the price you bought them.
+---
+'''
 
 cols = st.columns(3)
 
@@ -158,16 +175,31 @@ with cols[2]:
         )
 
 returns_df = P.groupby('Ticker').last()[['Returns', 'MV']]
-# st.table(returns_df)
-gainers_df = returns_df[returns_df.Returns > 0].sort_values('Returns', ascending=False).head().reset_index()
-losers_df = returns_df[returns_df.Returns < 0].sort_values('Returns').head().reset_index()
+
+@st.cache_data(ttl=3600)
+def gainers_losers(returns_df):
+    gainers_df = returns_df[returns_df.Returns > 0].sort_values('Returns', ascending=False)
+    losers_df = returns_df[returns_df.Returns < 0].sort_values('Returns')
+    return gainers_df, losers_df
+
+gainers_df, losers_df = gainers_losers(returns_df)
+# gainers_df = returns_df[returns_df.Returns > 0].sort_values('Returns', ascending=False).head().reset_index()
+# losers_df = returns_df[returns_df.Returns < 0].sort_values('Returns').head().reset_index()
 ''
 ''
 
 '### Biggest Gainers (by %)'
+filter_gainers_number = st.selectbox('Show top...', ['All', 5, 10, 20, 50], key='gains')
+if filter_gainers_number == 'All':
+    gainers_df = gainers_df.reset_index()
+else:
+    gainers_df = gainers_df.head(filter_gainers_number).reset_index()
+
 cols = st.columns(5)
 for i, row in gainers_df.iterrows():
-    with cols[i]:
+    col = cols[i % len(cols)]
+
+    with col:
         key = row.Ticker
         total_in = (P_meta[P_meta.dual_key == key]['Buy Price'] * P_meta[P_meta.dual_key == key]['Shares']).iloc[0]
         value = row['MV']
@@ -186,9 +218,16 @@ for i, row in gainers_df.iterrows():
 ''
 
 '### Biggest Losers (by %)'
+filter_losers_number = st.selectbox('Show top...', ['All', 5, 10, 20, 50],key='losses')
+if filter_losers_number == 'All':
+    losers_df = losers_df.reset_index()
+else:
+    losers_df = losers_df.head(filter_losers_number).reset_index()
 cols = st.columns(5)
 for i, row in losers_df.iterrows():
-    with cols[i]:
+    col = cols[i % len(cols)]
+
+    with col:
         key = row.Ticker
         total_in = (P_meta[P_meta.dual_key == key]['Buy Price'] * P_meta[P_meta.dual_key == key]['Shares']).iloc[0]
         value = row['MV']
@@ -214,7 +253,7 @@ from_date, to_date = st.slider(
     max_value=max_value,
     value=[min_value, max_value])
 
-P_growth = P.groupby('Date').agg({'MV':'sum'}).apply(lambda x: x/1000).loc[from_date:to_date].reset_index()
+P_growth = P[P.pseudo == 0].groupby('Date').agg({'MV':'sum'}).apply(lambda x: x/1000).loc[from_date:to_date].reset_index()
 P_growth.Date = P_growth.Date.apply(lambda x: str(x))
 
 c = (
@@ -230,7 +269,11 @@ st.altair_chart(c, use_container_width=True)
 #################################################################################################################
 
 #################################################################################################################
-st.header('Drill Down', divider='gray')
+f'''
+# Drill Down
+* This segment allows you to view individual stock performances over time, to visualize how the stock price changed throughout your holding.
+---
+'''
 
 # -------------- STOCK FILTER -------------- #
 
@@ -268,15 +311,7 @@ if len(selected_stocks) != 0:
     # -------------- FORMATTING -------------- #
     plot_P = filtered_date_P.copy()
     plot_P.Date = plot_P.Date.apply(lambda x: str(x))
-
-    # -------------- PRICE PLOT -------------- #
-    # st.line_chart(
-    #     plot_P,
-    #     x='Date',
-    #     y='Close',
-    #     color='Ticker',
-    # )
-
+    
     c = (
         alt.Chart(plot_P)
         .mark_line()
